@@ -1,0 +1,6 @@
+
+/bin/
+**.so
+**.out
+boot
+run
