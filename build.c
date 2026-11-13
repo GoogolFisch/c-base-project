@@ -39,6 +39,7 @@ char *bmain_test_compile(int32_t argc,char **argv,char *path,struct Strings **fl
 }
 void bmain_test_execute(int32_t argc,char **argv,char *path,struct Strings **flags,struct Tasks *t){
 	argc = argc;argv = argv;flags = flags;
+	task_clear_args(t);
 	task_set_file(t,path);
 	task_exec(t);
 }
@@ -56,8 +57,9 @@ void bmain_run_tests(int32_t argc,char **argv,struct Strings **flags,struct Task
 	task_await(t);
 	task_clear_args(t);
 	for(int32_t idx = 0;idx < foundStr->count;idx++){
-		bmain_test_execute(argc,argv,foundStr->strs[idx],flags,t);
-		free(foundStr->strs[idx]);
+		char *path = foundStr->strs[idx];
+		bmain_test_execute(argc,argv,path,flags,t);
+		free(path);
 	}
 	strings_free(&foundStr);
 }
