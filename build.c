@@ -14,42 +14,75 @@ void bmain_rebuild_self(int32_t argc,char **argv,struct Tasks *t){
 			fprintf(stdout,"Error: %s couldn't be deleted",argv[0]);
 	}
 }
-int isForTestingFile(struct dirent *dp){
-	if(string_end_cmp(dp->d_name,".c"))
+int isForTestingFile(char *fpath,struct dirent *dp){
+	printf("%s\n",fpath);
+	if(string_end_cmp(fpath,".c"))
 		return 1;
 	return 0;
 }
-void bmain_test_execute(int32_t argc,char **argv,char *path,struct Tasks *t){
+char *bmain_test_compile(int32_t argc,char **argv,char *path,struct Strings **flags,struct Tasks *t){
 	argc = argc;
 	argv = argv;
 	char *copyName = string_copy_margin(path,4);
+	int32_t ending = strlen(copyName);
+	copyName[ending - 1] = 'o';
+	copyName[ending    ] = 'u';
+	copyName[ending + 1] = 't';
+	copyName[ending + 2] =   0;
+	task_clear_args(t);
+	task_set_file(t,"gcc");
+	task_add_args_merge(t,*flags);
+	task_add_args_many(t,path,"-o",copyName,NULL);
+	task_exec(t);
+	return copyName;
+}
+void bmain_test_execute(int32_t argc,char **argv,char *path,struct Strings **flags,struct Tasks *t){
+	argc = argc;argv = argv;flags = flags;
+	task_set_file(t,path);
+	task_exec(t);
+}
+void bmain_run_tests(int32_t argc,char **argv,struct Strings **flags,struct Tasks *t){
+	struct Strings *foundStr = task_walk_direntry_filtered("./test/",&isForTestingFile);
+	if(foundStr == NULL){
+		printf("No tests found!\n");
+		return;
+	}
+	for(int32_t idx = 0;idx < foundStr->count;idx++){
+		char *path = foundStr->strs[idx];
+		foundStr->strs[idx] = bmain_test_compile(argc,argv,path,flags,t);
+		free(path);
+	}
+	task_await(t);
+	task_clear_args(t);
+	for(int32_t idx = 0;idx < foundStr->count;idx++){
+		bmain_test_execute(argc,argv,foundStr->strs[idx],flags,t);
+		free(foundStr->strs[idx]);
+	}
+	strings_free(&foundStr);
 }
 
 int32_t main(int32_t argc,char **argv){
 	struct Strings *flags = NULL;
 	struct Tasks t = {0};
-	if(task_needs_rebuild_many("./boot","./build.c",NULL)){
+	if(task_needs_rebuild_many("./boot","./build.c","./builder/util.h",NULL)){
 		bmain_rebuild_self(argc,argv,&t);
 	}
 	int isDebugMode = 1;
 	int isTestingMode = 0;
 	if(argc > 1){
-		if(strcmp(argv[1],"release")){
+		if(strcmp(argv[1],"release") == 0){
 			isDebugMode = 0;
 		}
-		if(strcmp(argv[1],"test")){
+		if(strcmp(argv[1],"test") == 0){
 			isTestingMode = 1;
 		}
 	}
-	if(isDebugMode)
-		strings_append_many(&flags,"-g","-fsanitize=address,unreachable,undefined","-Wall","-Wextra",NULL);
+	if(isDebugMode){
+		//strings_append_many(&flags,"-g","-fsanitize=address,unreachable,undefined","-Wall","-Wextra",NULL);
+		strings_append_many(&flags,"-g","-Wall","-Wextra",NULL);
+	}
 	if(isTestingMode){
-		struct Strings *foundStr = task_walk_direntry_filtered("./test/",&isForTestingFile);
-		char *path = strings_pop(&foundStr);
-		while(path){
-			bmain_test_execute(argc,argv,path,&t);
-			path = strings_pop(&foundStr);
-		}
+		bmain_run_tests(argc,argv,&flags,&t);
 	}
 	//
 	task_await(&t);

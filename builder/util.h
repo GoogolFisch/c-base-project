@@ -15,6 +15,7 @@
 #include<string.h>
 #include<dirent.h>
 #include<sys/stat.h>
+#include<sys/wait.h>
 
 #ifndef STRINGS_H_
 struct Strings{
@@ -38,7 +39,7 @@ struct StringArena{
 };
 struct StringArena stringStore = {0};
 // true for, yes I want this.
-typedef int(*FILTER_DIR)(struct dirent*);
+typedef int(*FILTER_DIR)(char *fpath,struct dirent*);
 
 void task_set_file(struct Tasks *t,char *file);
 void task_add_args(struct Tasks *t,char *arg);
@@ -166,10 +167,24 @@ void task_exec(struct Tasks *t){
 	t->tasks[t->length++] = added;
 }
 void task_await(struct Tasks *t){
+	int32_t errors = 0;
+	int wstatus;
 	for(int idx = 0;idx < t->length;idx++){
-		waitpid(t->tasks[idx],NULL,0);
+		do{
+			int waitStatus = waitpid(t->tasks[idx],&wstatus,0);
+			if(waitStatus == -1){
+				printf("Error with waitpid!\n");
+				continue;
+			}
+		}while(!WIFEXITED(wstatus));
+		if(WEXITSTATUS(wstatus) != 0){
+			errors++;
+		}
 	}
-	printf("Finished %d Tasks\n",t->length);
+	if(errors == 0)
+		printf("Finished %d Tasks\n",t->length);
+	else
+		printf("Finished %d Tasks, %d with errors\n",t->length,errors);
 	t->length = 0;
 }
 void task_touch(struct Tasks *t){
@@ -201,7 +216,7 @@ struct Strings *task_get_direntry_filtered(char *path,FILTER_DIR filter){
 	struct dirent *dp;
 	d = opendir(path);
 	while((dp = readdir(d)) != NULL){
-		if(filter(dp))
+		if(filter(NULL,dp))
 			strings_append(&sout,string_copy(dp->d_name));
 	}
 	closedir(d);
@@ -210,7 +225,9 @@ struct Strings *task_get_direntry_filtered(char *path,FILTER_DIR filter){
 struct Strings *task_walk_direntry_filtered(char *path,FILTER_DIR filter){
 	struct Strings *sout = NULL;
 	struct Strings *backlog = NULL;
-	strings_append(&backlog,path);
+	char *relPath = string_copy_margin(path,8);
+	strncpy(relPath,path,strlen(path) + 1);
+	strings_append(&backlog,relPath);
 	while(1){
 		char *next = strings_pop(&backlog);
 		if(next == NULL)break;
@@ -218,13 +235,20 @@ struct Strings *task_walk_direntry_filtered(char *path,FILTER_DIR filter){
 		struct dirent *dp;
 		d = opendir(path);
 		while((dp = readdir(d)) != NULL){
-			if(filter(dp))
-				strings_append(&sout,string_copy(dp->d_name));
-			
-			if (dp->d_type == DT_DIR) {
-				strings_append(&backlog,dp->d_name);
+			relPath = string_copy_margin(next,strlen(dp->d_name) + 1);
+			int32_t offset = strlen(next);
+			int32_t flength = strlen(dp->d_name);
+			strncpy(relPath + offset,dp->d_name,flength + 1);
+			//
+			if(filter(relPath,dp)){
+				strings_append(&sout,relPath);
+			}else if (dp->d_type == DT_DIR && dp->d_name[0] != '.') {
+				strings_append(&backlog,relPath);
+			}else{
+				free(relPath);
 			}
 		}
+		free(next);
 		closedir(d);
 	}
 	return sout;
@@ -249,15 +273,25 @@ int  task_needs_rebuild(char *gen,char **source,int32_t length){
 	return 0;
 }
 int  task_needs_rebuild_many(char *gen,char *source,...){
+	struct stat statBuf;
+	if(stat(gen,&statBuf) < 0){
+		if(errno == ENOENT)return 1;
+		printf("Error with getting stat of %s\n",gen);
+		return -1;
+	}
+	time_t sTime = statBuf.st_mtime;
 	va_list ap;
 	va_start(ap, source);
 	char *get = source;
-	int32_t length = 0;
 	while(get){
-		length++;
+		if(stat(get,&statBuf) < 0){
+			printf("Error with getting stat of %s\n",get);
+			return -1;
+		}
+		if(statBuf.st_mtime > sTime)return 1;
 		get = va_arg(ap,char*);
 	};
-	return task_needs_rebuild(gen,&source,length);
+	return 0;
 }
 
 
