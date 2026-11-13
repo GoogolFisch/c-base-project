@@ -189,9 +189,12 @@ void task_await(struct Tasks *t){
 }
 void task_touch(struct Tasks *t){
 	int cnt = 0;
+	int wstatus;
 	for(int idx = 0;idx < t->length;idx++){
-		pid_t p = waitpid(t->tasks[idx],NULL,WNOHANG);
+		pid_t p = waitpid(t->tasks[idx],&wstatus,WNOHANG);
 		if(p == 0)continue;
+		if(!WIFEXITED(wstatus))
+			continue;
 		cnt++;
 		t->length--;
 		t->tasks[idx] = t->tasks[t->length];

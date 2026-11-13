@@ -15,9 +15,10 @@ void bmain_rebuild_self(int32_t argc,char **argv,struct Tasks *t){
 	}
 }
 int isForTestingFile(char *fpath,struct dirent *dp){
-	printf("%s\n",fpath);
-	if(string_end_cmp(fpath,".c"))
+	if(string_end_cmp(fpath,".c")){
+		//printf("%s\n",fpath);
 		return 1;
+	}
 	return 0;
 }
 char *bmain_test_compile(int32_t argc,char **argv,char *path,struct Strings **flags,struct Tasks *t){
@@ -64,11 +65,9 @@ void bmain_run_tests(int32_t argc,char **argv,struct Strings **flags,struct Task
 int32_t main(int32_t argc,char **argv){
 	struct Strings *flags = NULL;
 	struct Tasks t = {0};
-	if(task_needs_rebuild_many("./boot","./build.c","./builder/util.h",NULL)){
-		bmain_rebuild_self(argc,argv,&t);
-	}
 	int isDebugMode = 1;
 	int isTestingMode = 0;
+	int isAllRebuild  = 0;
 	if(argc > 1){
 		if(strcmp(argv[1],"release") == 0){
 			isDebugMode = 0;
@@ -76,13 +75,23 @@ int32_t main(int32_t argc,char **argv){
 		if(strcmp(argv[1],"test") == 0){
 			isTestingMode = 1;
 		}
+		if(strcmp(argv[1],"all") == 0){
+			isAllRebuild = 1;
+		}
+	}
+	if(isAllRebuild || task_needs_rebuild_many("./boot","./build.c","./builder/util.h",NULL)){
+		bmain_rebuild_self(argc,argv,&t);
 	}
 	if(isDebugMode){
-		//strings_append_many(&flags,"-g","-fsanitize=address,unreachable,undefined","-Wall","-Wextra",NULL);
+		//strings_append_many(&flags,"-g",
+		//      "-fsanitize=address,unreachable,undefined",
+		//      "-Wall","-Wextra",NULL);
 		strings_append_many(&flags,"-g","-Wall","-Wextra",NULL);
 	}
 	if(isTestingMode){
 		bmain_run_tests(argc,argv,&flags,&t);
+		task_await(&t);
+		return 0;
 	}
 	//
 	task_await(&t);
